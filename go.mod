@@ -1,4 +1,4 @@
-module entry
+module github.com/Kailian-Jacy/go-obj-map
 
 go 1.19
 
