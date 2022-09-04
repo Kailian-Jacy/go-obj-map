@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"hash/fnv"
 	"reflect"
+	"strings"
 	"time"
 
-	cache "github.com/patrickmn/go-cache"
+	"github.com/boljen/go-bitmap"
+	"github.com/patrickmn/go-cache"
 )
 
-var tagNames = []string{
-	"none",
-	"ignore",
-}
+const (
+	ignore int = 1
+)
 
-type objDict struct {
+type ObjDict struct {
 	c *cache.Cache
 }
 
@@ -23,23 +24,24 @@ type objIndex interface {
 }
 
 type objMeta struct {
-	basicType  reflect.Type
-	memberType []string
-	memberName []string
-	memberTags []string
+	basicType   reflect.Type
+	memberType  []string
+	memberName  []string
+	memberTags  []bitmap.Bitmap
+	memberValue []interface{}
 }
 
-func NewDict() objDict {
+func New() ObjDict {
 	o := cache.New(5*time.Minute, 10*time.Minute)
-	return objDict{o}
+	return ObjDict{o}
 }
 
-func (o objDict) Set(k objIndex, v interface{}) {
+func (o ObjDict) Set(k objIndex, v interface{}) {
 	meta := getMeta(k)
 	o.c.Set(meta.Hash(), v, cache.DefaultExpiration)
 }
 
-func (o objDict) Get(k objIndex) (interface{}, bool) {
+func (o ObjDict) Get(k objIndex) (interface{}, bool) {
 	return o.c.Get(getMeta(k).Hash())
 }
 
@@ -51,39 +53,42 @@ func getMeta(idx objIndex) (meta objMeta) {
 	switch meta.basicType.Kind() {
 	case reflect.Struct:
 		return structMeta(idx, meta)
+	// TODO: Support other types.
+	default:
+		return meta
 	}
-	return
 }
 
-func structMeta(idx objIndex, meta objMeta) objMeta {
-	for i := 0; i < meta.basicType.NumField(); i++ {
-		typeField := reflect.TypeOf(idx).Field(i)
-		meta.memberType = append(meta.memberType, typeField.Type.String())
-		meta.memberName = append(meta.memberName, typeField.Name)
-		meta.memberTags = append(meta.memberTags, getTags(typeField))
-	}
-	return meta
-}
-
-func getTags(tf reflect.StructField) string {
+func getTags(tf reflect.StructField) bitmap.Bitmap {
 	// TODO: Build Bitmap
-	for _, str := range tagNames {
-		if name, ok := tf.Tag.Lookup(str); ok {
-			return name
+	bm := bitmap.New(1)
+	if str, ok := tf.Tag.Lookup("objmap"); ok {
+		if strings.Contains(str, "ignore") {
+			bm.Set(ignore, true)
 		}
 	}
-	return "none"
+	return bm
 }
 
 func (meta objMeta) Hash() string {
+	// TODO: promote hash func:
+	// Change hash type for less collision.
+	// Promote MetaStr composer for better performance and better support for special chars.
 	var metaStr string
-	for idx := range meta.memberType {
+	for idx, tag := range meta.memberTags {
+		if tag.Get(ignore) {
+			continue
+		}
 		metaStr += meta.memberType[idx]
 		metaStr += "+"
 		metaStr += meta.memberName[idx]
 		metaStr += "%"
+		metaStr += meta.memberName[idx]
+		metaStr += "?"
+		metaStr += fmt.Sprint(meta.memberValue[idx])
+		metaStr += "&"
 	}
 	h := fnv.New32a()
-	h.Write([]byte(metaStr))
+	_, _ = h.Write([]byte(metaStr))
 	return fmt.Sprint(h.Sum32())
 }
