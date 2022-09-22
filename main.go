@@ -16,7 +16,7 @@ const (
 )
 
 type ObjDict struct {
-	c *cache.Cache
+	cache.Cache
 }
 
 type objIndex interface {
@@ -31,18 +31,17 @@ type objMeta struct {
 	memberValue []interface{}
 }
 
-func New() ObjDict {
-	o := cache.New(5*time.Minute, 10*time.Minute)
-	return ObjDict{o}
+func New(expire time.Duration) ObjDict {
+	return ObjDict{*cache.New(expire, expire+10*time.Minute)}
 }
 
 func (o ObjDict) Set(k objIndex, v interface{}) {
 	meta := getMeta(k)
-	o.c.Set(meta.Hash(), v, cache.DefaultExpiration)
+	o.Cache.Set(meta.Hash(), v, cache.DefaultExpiration)
 }
 
 func (o ObjDict) Get(k objIndex) (interface{}, bool) {
-	return o.c.Get(getMeta(k).Hash())
+	return o.Cache.Get(getMeta(k).Hash())
 }
 
 func getMeta(idx objIndex) (meta objMeta) {
